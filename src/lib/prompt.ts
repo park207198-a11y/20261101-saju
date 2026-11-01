@@ -1,4 +1,5 @@
-import type { SajuResult } from '../types/saju';
+import { MAX_OUTPUT_TOKENS } from '../constants.ts';
+import type { SajuResult } from '../types/saju.ts';
 
 export const SYSTEM_PROMPT = `당신은 명리학에 정통한, 따뜻하고 솔직한 사주 상담가입니다.
 
@@ -81,6 +82,20 @@ export const RESPONSE_SCHEMA: Schema = obj({
   }),
   advice: str('종합 조언 3~5문장 (참고용 면책 한 줄 포함)'),
 });
+
+/** generateContent / streamGenerateContent 공용 요청 본문. 브라우저와 Edge Function이 함께 사용한다. */
+export function buildRequestBody(userPrompt: string): string {
+  return JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: RESPONSE_SCHEMA,
+      temperature: 0.8,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+    },
+  });
+}
 
 /** 이름·출생지 등 자유 입력은 제어문자를 제거하고 길이를 제한한다. (인젝션은 시스템 프롬프트에서도 방어) */
 export function sanitizeFreeText(value: string | undefined, max: number): string {

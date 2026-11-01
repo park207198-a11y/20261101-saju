@@ -1,6 +1,12 @@
-import type { Element } from './types/saju';
+// 이 파일과 lib/prompt.ts는 Netlify Edge Function(Deno)에서도 import 하므로 상대 경로에 확장자를 명시한다.
+import type { Element } from './types/saju.ts';
 
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+/** 서버 공용 키로 풀이를 요청하는 Netlify Edge Function 경로 */
+export const PROXY_PATH = '/api/reading';
+/** 서버가 받는 사용자 프롬프트 최대 길이(남용 방지) */
+export const MAX_PROMPT_CHARS = 20_000;
 
 export interface ModelOption {
   id: string;

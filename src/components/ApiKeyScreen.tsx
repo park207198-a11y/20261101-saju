@@ -6,11 +6,11 @@ interface Props {
   initialKey: string;
   initialPersistent: boolean;
   model: string;
-  /** 이미 키가 설정된 상태에서 열린 설정 화면인지 */
-  hasKey: boolean;
   onModelChange: (model: string) => void;
+  /** 본인 키로 풀이 */
   onConfirm: (key: string, persistent: boolean) => void;
-  onForget: () => void;
+  /** 서버 공용 키로 풀이 (저장된 본인 키는 삭제) */
+  onUseServer: () => void;
   onBack: () => void;
 }
 
@@ -18,10 +18,9 @@ export default function ApiKeyScreen({
   initialKey,
   initialPersistent,
   model,
-  hasKey,
   onModelChange,
   onConfirm,
-  onForget,
+  onUseServer,
   onBack,
 }: Props) {
   const [key, setKey] = useState(initialKey);
@@ -37,7 +36,9 @@ export default function ApiKeyScreen({
     e.preventDefault();
     const trimmed = key.trim();
     if (!trimmed) {
-      setError('API 키를 입력해 주세요.');
+      setError(
+        '본인 키를 쓰려면 API 키를 입력해 주세요. 키 없이 쓰려면 "서버 키로 사용"을 누르세요.',
+      );
       return;
     }
     setError('');
@@ -59,9 +60,10 @@ export default function ApiKeyScreen({
   return (
     <form onSubmit={submit} className="card space-y-5">
       <div>
-        <h2 className="text-xl font-bold">Gemini API 키 입력</h2>
+        <h2 className="text-xl font-bold">풀이 설정</h2>
         <p className="mt-1 text-sm text-stone-600 dark:text-stone-400">
-          풀이는 본인의 Gemini API 키로 요청됩니다. 키가 없다면{' '}
+          기본은 <b>서버 공용 키</b>로 풀이하며 키 입력이 필요 없습니다. 이용자가 많으면 한도에 걸릴
+          수 있으니, 그럴 땐 본인의 Gemini API 키를 입력해 쓰세요. 키가 없다면{' '}
           <a
             href={AI_STUDIO_KEY_URL}
             target="_blank"
@@ -75,8 +77,26 @@ export default function ApiKeyScreen({
       </div>
 
       <div>
+        <label htmlFor="model" className="label">
+          모델
+        </label>
+        <select
+          id="model"
+          value={model}
+          onChange={(e) => onModelChange(e.target.value)}
+          className="field"
+        >
+          {GEMINI_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
         <label htmlFor="apikey" className="label">
-          API 키
+          내 API 키 <span className="font-normal text-stone-500">(선택)</span>
         </label>
         <div className="flex gap-2">
           <input
@@ -110,28 +130,16 @@ export default function ApiKeyScreen({
         </label>
       </div>
 
-      <div>
-        <label htmlFor="model" className="label">
-          모델
-        </label>
-        <select
-          id="model"
-          value={model}
-          onChange={(e) => onModelChange(e.target.value)}
-          className="field"
-        >
-          {GEMINI_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+      <div className="space-y-2 rounded-lg bg-violet-50 p-3 text-xs leading-relaxed text-violet-900 dark:bg-violet-950/50 dark:text-violet-200">
+        <p>
+          🔒 <b>본인 키</b>: 키는 브라우저에서 Google 서버로만 전송되며 이 앱의 서버에는 저장되지
+          않습니다. 공용 PC에서는 &quot;이 기기에 키 저장&quot;을 켜지 마세요.
+        </p>
+        <p>
+          🌐 <b>서버 키</b>: 입력한 생년월일 정보가 이 사이트의 서버를 거쳐 Google Gemini로
+          전달됩니다. 서버는 내용을 저장하거나 기록하지 않습니다.
+        </p>
       </div>
-
-      <p className="rounded-lg bg-violet-50 p-3 text-xs leading-relaxed text-violet-900 dark:bg-violet-950/50 dark:text-violet-200">
-        🔒 키는 브라우저에서 Google 서버로만 전송되며 이 앱의 서버에는 저장되지 않습니다. (이 앱에는
-        서버가 없습니다.) 공용 PC에서는 &quot;이 기기에 키 저장&quot;을 켜지 마세요.
-      </p>
 
       {error && (
         <p
@@ -144,18 +152,14 @@ export default function ApiKeyScreen({
 
       <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={checking} className="btn-primary">
-          {checking ? '확인 중…' : '키 확인'}
+          {checking ? '확인 중…' : '내 키 확인 후 사용'}
         </button>
-        {hasKey && (
-          <>
-            <button type="button" onClick={onBack} className="btn-secondary">
-              돌아가기
-            </button>
-            <button type="button" onClick={onForget} className="btn-secondary">
-              저장된 키 삭제
-            </button>
-          </>
-        )}
+        <button type="button" onClick={onUseServer} className="btn-secondary">
+          서버 키로 사용
+        </button>
+        <button type="button" onClick={onBack} className="btn-secondary">
+          돌아가기
+        </button>
       </div>
     </form>
   );

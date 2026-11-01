@@ -1,6 +1,16 @@
 # 🔮 AI 사주 풀이
 
-본인의 Gemini API 키로 사주팔자를 계산하고, Gemini가 재물·연애·사업·건강운 등을 풀이해 주는 **순수 클라이언트 웹 앱**입니다. 서버·DB·로그인이 없습니다.
+사주팔자를 계산하고, Gemini가 재물·연애·사업·건강운 등을 풀이해 주는 웹 앱입니다. DB·로그인이 없고, 풀이 방식은 두 가지입니다.
+
+- **서버 공용 키 (기본):** 방문자는 키 없이 사용. Netlify Edge Function(`netlify/edge-functions/reading.ts`)이 환경변수 `GEMINI_API_KEY`로 Gemini를 호출하고 스트림을 중계합니다.
+- **본인 키:** 설정에서 본인의 Gemini API 키를 입력하면 브라우저가 Google로 직접 호출합니다. (서버를 거치지 않음)
+
+## Netlify 배포와 서버 키 설정
+
+1. Netlify 사이트 → **Site configuration → Environment variables**에서 `GEMINI_API_KEY`를 추가합니다. (값은 Secret으로, 스코프에 Functions/Runtime 포함)
+2. 환경변수를 추가한 뒤 **재배포**해야 적용됩니다.
+3. 서버 키 모드는 **사용량 제한이 없습니다.** 방문자가 쓰는 만큼 내 키의 한도·요금이 소모되므로 Google AI Studio에서 사용량 알림/한도를 설정하세요. 서버는 모델 허용 목록, 프롬프트 길이(20,000자) 제한, 같은 사이트 Origin 검사만 합니다.
+4. 로컬 개발(`npm run dev`)에는 Edge Function이 없으므로 서버 키 모드는 동작하지 않습니다. 설정에서 본인 키를 쓰거나 `npx netlify dev`를 사용하세요.
 
 - Vite + React 18 + TypeScript 5 + Tailwind CSS 4
 - 사주 계산은 **코드가 결정론적으로** 수행하고(`src/lib/saju/`), AI는 계산된 결과를 풀이만 합니다.

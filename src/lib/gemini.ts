@@ -2,12 +2,12 @@ import {
   BACKOFF_BASE_MS,
   GEMINI_API_BASE,
   KEY_CHECK_TIMEOUT_MS,
-  MAX_OUTPUT_TOKENS,
   MAX_RETRIES,
+  PROXY_PATH,
   REQUEST_TIMEOUT_MS,
 } from '../constants';
 import type { Reading, ScoredSection } from '../types/reading';
-import { RESPONSE_SCHEMA, SYSTEM_PROMPT } from './prompt';
+import { buildRequestBody } from './prompt';
 
 export type GeminiErrorKind =
   | 'auth'
@@ -18,6 +18,7 @@ export type GeminiErrorKind =
   | 'blocked'
   | 'parse'
   | 'server'
+  | 'proxy-unavailable'
   | 'bad-request'
   | 'unknown';
 
@@ -31,6 +32,8 @@ const KIND_MESSAGES: Record<GeminiErrorKind, string> = {
   blocked: 'Gemini 안전 정책에 의해 응답이 차단되었습니다. 입력을 바꿔 다시 시도해 주세요.',
   parse: 'AI 응답을 해석하지 못했습니다. 다시 시도해 주세요.',
   server: 'Gemini 서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.',
+  'proxy-unavailable':
+    '서버 공용 키 풀이를 사용할 수 없습니다. 상단 "설정"에서 본인의 Gemini API 키를 입력해 주세요.',
   'bad-request':
     '요청이 거부되었습니다. 선택한 모델을 사용할 수 없는 경우일 수 있으니 설정에서 모델을 바꿔 보세요.',
   unknown: '알 수 없는 오류가 발생했습니다. 다시 시도해 주세요.',
@@ -49,7 +52,8 @@ export class GeminiError extends Error {
 }
 
 export interface GeminiOptions {
-  apiKey: string;
+  /** 비어 있으면 서버(Netlify Edge Function)의 공용 키로 풀이한다. */
+  apiKey?: string;
   model: string;
   signal?: AbortSignal;
   /** 테스트용 주입 지점 */
@@ -89,13 +93,17 @@ async function safeJson(res: Response): Promise<unknown> {
   }
 }
 
-/** 타임아웃 + 사용자 취소를 하나의 signal로 합쳐 fetch한다. */
-async function request(
+/**
+ * 타임아웃 + 사용자 취소를 하나의 signal로 합쳐 fetch한 뒤, 응답 처리(handle)까지
+ * 같은 타임아웃 안에서 수행한다. (스트리밍 본문 읽기 포함)
+ */
+async function request<T>(
   url: string,
   init: RequestInit,
   opts: GeminiOptions,
   defaultTimeout: number,
-): Promise<Response> {
+  handle: (res: Response) => Promise<T>,
+): Promise<T> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const controller = new AbortController();
   let timedOut = false;
@@ -107,14 +115,14 @@ async function request(
   if (opts.signal?.aborted) controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   try {
-    return await fetchImpl(url, {
-      ...init,
-      signal: controller.signal,
-      headers: { ...init.headers, 'x-goog-api-key': opts.apiKey },
-    });
-  } catch {
+    const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
+    if (opts.apiKey) headers['x-goog-api-key'] = opts.apiKey;
+    const res = await fetchImpl(url, { ...init, signal: controller.signal, headers });
+    return await handle(res);
+  } catch (e) {
     if (timedOut) throw new GeminiError('timeout');
     if (opts.signal?.aborted) throw new GeminiError('aborted');
+    if (e instanceof GeminiError) throw e;
     throw new GeminiError('network');
   } finally {
     clearTimeout(timer);
@@ -139,57 +147,114 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** 가벼운 모델 목록 조회로 API 키 유효성을 확인한다. 실패 시 GeminiError. */
 export async function validateApiKey(opts: GeminiOptions): Promise<void> {
-  const res = await request(
+  await request(
     `${GEMINI_API_BASE}/models?pageSize=1`,
     { method: 'GET' },
     opts,
     KEY_CHECK_TIMEOUT_MS,
+    async (res) => {
+      if (res.ok) return;
+      throw new GeminiError(classifyStatus(res.status, await safeJson(res)), res.status);
+    },
   );
-  if (res.ok) return;
+}
+
+/** 직접 호출(본인 키) 응답 처리: 일반 generateContent JSON */
+async function handleDirect(res: Response): Promise<string> {
+  if (res.ok) return extractText(await safeJson(res));
   throw new GeminiError(classifyStatus(res.status, await safeJson(res)), res.status);
 }
 
-interface GenerateParams {
-  systemPrompt?: string;
-  userPrompt: string;
+/** 서버 공용 키(프록시) 응답 처리: SSE 스트림을 이어 붙인다. */
+async function handleProxy(res: Response): Promise<string> {
+  const type = res.headers.get('content-type') ?? '';
+  // 프록시가 없는 환경(로컬 개발 서버 등)에서는 index.html(200)이나 404가 돌아온다.
+  if (res.status === 404 || type.includes('text/html')) throw new GeminiError('proxy-unavailable');
+  if (!res.ok) {
+    const body = await safeJson(res);
+    if (readString(readObject(body)?.code) === 'no-server-key')
+      throw new GeminiError('proxy-unavailable');
+    throw new GeminiError(classifyProxyStatus(res.status), res.status);
+  }
+  if (!res.body) throw new GeminiError('parse');
+  return readSse(res.body);
 }
 
-/** generateContent 1회 호출 + 429/5xx 지수 백오프 재시도(최대 MAX_RETRIES회). 응답 본문 텍스트를 반환. */
-async function generateText(opts: GeminiOptions, params: GenerateParams): Promise<string> {
-  const url = `${GEMINI_API_BASE}/models/${encodeURIComponent(opts.model)}:generateContent`;
-  const body = JSON.stringify({
-    systemInstruction: { parts: [{ text: params.systemPrompt ?? SYSTEM_PROMPT }] },
-    contents: [{ role: 'user', parts: [{ text: params.userPrompt }] }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA,
-      temperature: 0.8,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-    },
-  });
+/** 프록시 오류는 서버 키 문제(401/403/400)가 사용자 키 오류로 보이지 않게 구분한다. */
+function classifyProxyStatus(status: number): GeminiErrorKind {
+  if (status === 429) return 'quota';
+  if (status === 403) return 'unknown';
+  return status >= 500 || status === 401 || status === 400 ? 'server' : 'unknown';
+}
+
+/** SSE(`data: {json}` 이벤트)를 읽어 모델이 생성한 텍스트 조각을 이어 붙인다. */
+async function readSse(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let out = '';
+  const consume = (event: string) => {
+    const data = event
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).trim())
+      .join('');
+    if (!data) return;
+    let json: unknown;
+    try {
+      json = JSON.parse(data);
+    } catch {
+      return;
+    }
+    out += extractText(json, true);
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? '';
+    events.forEach(consume);
+  }
+  if (buffer.trim()) consume(buffer);
+  if (!out.trim()) throw new GeminiError('parse');
+  return out;
+}
+
+/** 요청 1회 + 429/5xx 지수 백오프 재시도(최대 MAX_RETRIES회). 응답 본문 텍스트를 반환. */
+async function generateText(opts: GeminiOptions, userPrompt: string): Promise<string> {
+  const proxy = !opts.apiKey;
+  const url = proxy
+    ? PROXY_PATH
+    : `${GEMINI_API_BASE}/models/${encodeURIComponent(opts.model)}:generateContent`;
+  const body = proxy
+    ? JSON.stringify({ model: opts.model, userPrompt })
+    : buildRequestBody(userPrompt);
   const base = opts.backoffBaseMs ?? BACKOFF_BASE_MS;
 
   for (let attempt = 0; ; attempt++) {
-    const res = await request(
-      url,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
-      opts,
-      REQUEST_TIMEOUT_MS,
-    );
-    if (res.ok) return extractText(await safeJson(res));
-
-    const kind = classifyStatus(res.status, await safeJson(res));
-    const retryable = res.status === 429 || res.status >= 500;
-    if (retryable && attempt < MAX_RETRIES) {
+    try {
+      return await request(
+        url,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+        opts,
+        REQUEST_TIMEOUT_MS,
+        proxy ? handleProxy : handleDirect,
+      );
+    } catch (e) {
+      const status = e instanceof GeminiError ? e.status : undefined;
+      const retryable = status !== undefined && (status === 429 || status >= 500);
+      if (!retryable || attempt >= MAX_RETRIES) throw e;
       await sleep(base * 2 ** attempt, opts.signal);
-      continue;
     }
-    throw new GeminiError(kind, res.status);
   }
 }
 
-/** generateContent 응답에서 JSON 텍스트를 꺼낸다. (사고 과정 parts는 제외) */
-export function extractText(data: unknown): string {
+/**
+ * generateContent 응답에서 JSON 텍스트를 꺼낸다. (사고 과정 parts는 제외)
+ * chunk=true는 스트리밍 조각용으로, 텍스트가 없는 조각(종료 신호 등)도 오류로 보지 않는다.
+ */
+export function extractText(data: unknown, chunk = false): string {
   const root = readObject(data);
   if (readString(readObject(root?.promptFeedback)?.blockReason)) throw new GeminiError('blocked');
   const candidates = root?.candidates;
@@ -198,13 +263,16 @@ export function extractText(data: unknown): string {
   if (finish === 'SAFETY' || finish === 'PROHIBITED_CONTENT' || finish === 'BLOCKLIST')
     throw new GeminiError('blocked');
   const parts = readObject(first?.content)?.parts;
-  if (!Array.isArray(parts)) throw new GeminiError('parse');
+  if (!Array.isArray(parts)) {
+    if (chunk) return '';
+    throw new GeminiError('parse');
+  }
   const text = parts
     .map((p) => readObject(p))
     .filter((p) => p && p.thought !== true)
     .map((p) => readString(p?.text) ?? '')
     .join('');
-  if (!text.trim()) throw new GeminiError('parse');
+  if (!chunk && !text.trim()) throw new GeminiError('parse');
   return text;
 }
 
@@ -282,10 +350,10 @@ export function parseReading(raw: string): Reading {
  */
 export async function requestReading(opts: GeminiOptions, userPrompt: string): Promise<Reading> {
   try {
-    return parseReading(await generateText(opts, { userPrompt }));
+    return parseReading(await generateText(opts, userPrompt));
   } catch (e) {
     if (e instanceof GeminiError && e.kind === 'parse') {
-      return parseReading(await generateText(opts, { userPrompt }));
+      return parseReading(await generateText(opts, userPrompt));
     }
     throw e;
   }

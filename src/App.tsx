@@ -28,7 +28,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState(stored?.key ?? '');
   const [persistent, setPersistent] = useState(stored?.persistent ?? false);
   const [model, setModel] = useState(loadModel);
-  const [step, setStep] = useState<Step>(stored ? 'form' : 'key');
+  const [step, setStep] = useState<Step>('form');
   const [saju, setSaju] = useState<SajuResult | null>(null);
   const [reading, setReading] = useState<ReadingState>({ status: 'loading' });
   const [fromHistory, setFromHistory] = useState(false);
@@ -101,7 +101,6 @@ export default function App() {
           initialKey={apiKey}
           initialPersistent={persistent}
           model={model}
-          hasKey={Boolean(apiKey)}
           onModelChange={(m) => {
             setModel(m);
             saveModel(m);
@@ -112,10 +111,11 @@ export default function App() {
             setPersistent(remember);
             setStep(saju ? 'result' : 'form');
           }}
-          onForget={() => {
+          onUseServer={() => {
             clearApiKey();
             setApiKey('');
             setPersistent(false);
+            setStep(saju ? 'result' : 'form');
           }}
           onBack={() => setStep(saju ? 'result' : 'form')}
         />
