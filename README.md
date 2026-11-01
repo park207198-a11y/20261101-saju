@@ -29,7 +29,7 @@ npm run dev      # http://localhost:5173
 2. **Create API key**로 키를 만들고 `AIza...`로 시작하는 문자열을 복사합니다.
 3. 앱의 첫 화면에 붙여넣고 **키 확인**을 누릅니다. (무료 등급은 분당/일일 요청 한도가 있습니다.)
 
-기본 모델은 `gemini-2.5-flash`이며 설정(상단 "설정")에서 `gemini-2.5-pro` 등으로 바꿀 수 있습니다. 모델 목록·타임아웃 등은 [`src/constants.ts`](src/constants.ts)에 모여 있습니다.
+기본 모델은 `gemini-3-flash-preview`이며 설정(상단 "설정")에서 `gemini-2.5-flash`, `gemini-2.5-pro` 등으로 바꿀 수 있습니다. 모델 목록·타임아웃 등은 [`src/constants.ts`](src/constants.ts)에 모여 있습니다.
 
 ## 보안·개인정보
 

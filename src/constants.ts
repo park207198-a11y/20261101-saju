@@ -8,11 +8,12 @@ export interface ModelOption {
 }
 
 export const GEMINI_MODELS: readonly ModelOption[] = [
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (빠름, 기본)' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (기본)' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (빠름)' },
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (정밀, 느림)' },
   { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (가장 빠름)' },
 ];
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_MODEL = 'gemini-3-flash-preview';
 
 /** 한 번의 풀이 요청 제한 시간 */
 export const REQUEST_TIMEOUT_MS = 60_000;
