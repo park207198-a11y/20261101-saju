@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { handleReading } from './reading';
+﻿import { describe, expect, it, vi } from 'vitest';
+import { handleReading } from './edge-functions/reading';
 
 const SERVER_KEY = 'server-secret-key-for-test';
 
