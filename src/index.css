@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
+
+body {
+  @apply bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100;
+  font-family:
+    'Pretendard',
+    'Noto Sans KR',
+    'Malgun Gothic',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.btn-primary,
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-primary {
+  @apply bg-violet-600 text-white hover:bg-violet-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500;
+}
+.btn-secondary {
+  @apply border border-stone-300 bg-white hover:bg-stone-100 dark:border-stone-700 dark:bg-stone-900 dark:hover:bg-stone-800;
+}
+.btn-ghost {
+  @apply rounded-lg px-3 py-1.5 text-sm hover:bg-stone-200 dark:hover:bg-stone-800;
+}
+.field {
+  @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30 dark:border-stone-700 dark:bg-stone-900;
+}
+.card {
+  @apply rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-900;
+}
+.label {
+  @apply mb-1 block text-sm font-medium text-stone-700 dark:text-stone-300;
+}
+
+@keyframes shimmer {
+  0% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  animation: shimmer 1.4s ease-in-out infinite;
+  @apply rounded bg-stone-200 dark:bg-stone-800;
+}
